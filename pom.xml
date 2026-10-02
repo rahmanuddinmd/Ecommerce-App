@@ -61,18 +61,17 @@
     </dependency>
   </dependencies>
 
-  <distributionManagement>
+<distributionManagement>
     <repository>
-      <id>maven-releases</id>
-      <url>http://100.61.119.242:8081/repository/maven-releases/</url>
+        <id>maven-releases</id>
+        <url>http://100.61.119.242:8081/repository/maven-releases/</url>
     </repository>
-    <snapshotRepository>
-      <id>maven-snapshots</id>
-      <url>http://100.61.119.242:8081/repository/maven-snapshots/</url>
-    </snapshotRepository>
-  </distributionManagement>
 
-  <build>
+    <snapshotRepository>
+        <id>maven-snapshots</id>
+        <url>http://100.61.119.242:8081/repository/maven-snapshots/</url>
+    </snapshotRepository>
+</distributionManagement>  <build>
     <finalName>EcommerceApp</finalName>
 
     <plugins>
