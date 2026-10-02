@@ -427,89 +427,188 @@ pipeline {
     agent any
 
     tools {
-        jdk 'jdk17'
+        jdk 'jdk21'
         maven 'maven'
     }
 
     environment {
         SCANNER_HOME = tool 'sonar-scanner'
-        DOCKER_IMAGE = "kastrov/ecommerce:latest"
+        DOCKER_IMAGE = 'rahmanuddinmd17/ecommerce:latest'
     }
 
     stages {
+
         stage('Git Checkout') {
             steps {
-                git 'https://github.com/KastroVKiran/Ecommerce-App-Kastro.git'
+                git 'https://github.com/rahmanuddinmd/Ecommerce-App.git'
             }
         }
 
         stage('Maven Compile') {
             steps {
-                sh "mvn compile"
+                sh '''
+                    echo "===== Java Version ====="
+                    java -version
+
+                    echo "===== Maven Version ====="
+                    mvn -version
+
+                    echo "===== Maven Compile ====="
+                    mvn compile
+                '''
             }
         }
 
         stage('Maven Test') {
             steps {
-                sh "mvn test -DskipTests=true"
+                sh '''
+                    mvn test
+                '''
             }
         }
 
         stage('File System Scan') {
             steps {
-                sh "trivy fs --format table -o trivy-fs-report.html ."
+                sh '''
+                    echo "===== Trivy File System Scan ====="
+
+                    trivy fs \
+                    --format template \
+                    --template "@/usr/local/share/trivy/templates/html.tpl" \
+                    -o trivy-fs-report.html \
+                    .
+                '''
+
+                archiveArtifacts(
+                    artifacts: 'trivy-fs-report.html',
+                    fingerprint: true,
+                    allowEmptyArchive: true
+                )
             }
         }
 
         stage('SonarQube Analysis') {
             steps {
                 withSonarQubeEnv('sonar') {
-                    sh '''
-                    $SCANNER_HOME/bin/sonar-scanner \
-                    -Dsonar.projectName=ECommerce \
-                    -Dsonar.projectKey=ECommerce \
-                    -Dsonar.java.binaries=target/classes
-                    '''
+
+                    withCredentials([
+                        string(
+                            credentialsId: 'soner-token',
+                            variable: 'SONAR_TOKEN'
+                        )
+                    ]) {
+
+                        sh '''
+                            ${SCANNER_HOME}/bin/sonar-scanner \
+                            -Dsonar.projectName=ECommerce \
+                            -Dsonar.projectKey=ECommerce \
+                            -Dsonar.java.binaries=target/classes \
+                            -Dsonar.token=${SONAR_TOKEN}
+                        '''
+                    }
                 }
             }
         }
 
         stage('Maven Build') {
             steps {
-                sh "mvn package -DskipTests=true"
+                sh '''
+                    mvn package -DskipTests
+                '''
             }
         }
 
         stage('Publish to Nexus') {
             steps {
-                withMaven(globalMavenSettingsConfig: 'maven-setting', jdk: 'jdk17', maven: 'maven') {
-                    sh "mvn deploy -DskipTests=true"
+                withMaven(
+                    globalMavenSettingsConfig: 'maven-setting',
+                    jdk: 'jdk21',
+                    maven: 'maven'
+                ) {
+
+                    sh '''
+                        mvn deploy -DskipTests
+                    '''
                 }
             }
         }
 
         stage('Docker Build & Tag') {
             steps {
-                script {
-                    withDockerRegistry(credentialsId: 'docker-cred') {
-                        sh "docker build -t ${DOCKER_IMAGE} ."
-                    }
-                }
+                sh '''
+                    echo "================================"
+                    echo "Docker Version"
+                    echo "================================"
+
+                    docker --version
+
+                    echo ""
+                    echo "================================"
+                    echo "Docker Information"
+                    echo "================================"
+
+                    docker info
+
+                    echo ""
+                    echo "================================"
+                    echo "Dockerfile Check"
+                    echo "================================"
+
+                    ls -la
+
+                    test -f Dockerfile
+
+                    echo ""
+                    echo "================================"
+                    echo "Building Docker Image"
+                    echo "================================"
+
+                    docker build \
+                    -t ${DOCKER_IMAGE} \
+                    .
+
+                    echo ""
+                    echo "Docker image created successfully:"
+
+                    docker images ${DOCKER_IMAGE}
+                '''
             }
         }
 
         stage('Docker Image Scan') {
             steps {
-                sh "trivy image --format table -o trivy-image-report.html ${DOCKER_IMAGE}"
-                archiveArtifacts artifacts: 'trivy-image-report.html', fingerprint: true
+                sh '''
+                    echo "===== Trivy Docker Image Scan ====="
+
+                    trivy image \
+                    --format template \
+                    --template "@/usr/local/share/trivy/templates/html.tpl" \
+                    -o trivy-image-report.html \
+                    ${DOCKER_IMAGE}
+                '''
+
+                archiveArtifacts(
+                    artifacts: 'trivy-image-report.html',
+                    fingerprint: true,
+                    allowEmptyArchive: true
+                )
             }
         }
 
         stage('Push Docker Image') {
             steps {
                 script {
-                    withDockerRegistry(credentialsId: 'docker-cred') {
-                        sh "docker push ${DOCKER_IMAGE}"
+
+                    withDockerRegistry(
+                        credentialsId: 'docker-cred',
+                        url: 'https://index.docker.io/v1/'
+                    ) {
+
+                        sh '''
+                            echo "===== Docker Push ====="
+
+                            docker push ${DOCKER_IMAGE}
+                        '''
                     }
                 }
             }
@@ -517,51 +616,129 @@ pipeline {
 
         stage('Deploy to Container') {
             steps {
-                script {
-                    sh "docker stop ecommerce-container || true && docker rm ecommerce-container || true"
-                    sh "docker run -d --name ecommerce-container -p 8083:8080 ${DOCKER_IMAGE}"
-                }
+                sh '''
+                    echo "===== Stop Existing Container ====="
+
+                    docker stop ecommerce-container || true
+
+                    echo "===== Remove Existing Container ====="
+
+                    docker rm ecommerce-container || true
+
+                    echo "===== Start New Container ====="
+
+                    docker run -d \
+                    --name ecommerce-container \
+                    -p 8083:8080 \
+                    ${DOCKER_IMAGE}
+
+                    echo ""
+                    echo "===== Container Status ====="
+
+                    docker ps --filter name=ecommerce-container
+                '''
             }
         }
     }
 
     post {
+
         always {
             script {
+
                 def jobName = env.JOB_NAME
                 def buildNumber = env.BUILD_NUMBER
                 def pipelineStatus = currentBuild.result ?: 'SUCCESS'
-                def bannerColor = pipelineStatus.toUpperCase() == 'SUCCESS' ? 'green' : 'red'
+
+                def bannerColor =
+                    pipelineStatus.toUpperCase() == 'SUCCESS'
+                    ? 'green'
+                    : 'red'
 
                 def body = """
                 <html>
                 <body>
-                <div style="border: 4px solid ${bannerColor}; padding: 10px;">
-                <h2>${jobName} - Build ${buildNumber}</h2>
-                <div style="background-color: ${bannerColor}; padding: 10px;">
-                <h3 style="color: white;">Pipeline Status: ${pipelineStatus.toUpperCase()}</h3>
+
+                <div style="
+                    border: 4px solid ${bannerColor};
+                    padding: 15px;
+                ">
+
+                    <h2>
+                        ${jobName} - Build ${buildNumber}
+                    </h2>
+
+                    <div style="
+                        background-color: ${bannerColor};
+                        padding: 10px;
+                    ">
+
+                        <h3 style="color:white;">
+                            Pipeline Status:
+                            ${pipelineStatus.toUpperCase()}
+                        </h3>
+
+                    </div>
+
+                    <p>
+                        <b>Repository:</b>
+                        rahmanuddinmd/Ecommerce-App
+                    </p>
+
+                    <p>
+                        <b>Java:</b>
+                        JDK 21
+                    </p>
+
+                    <p>
+                        <b>Docker Image:</b>
+                        ${DOCKER_IMAGE}
+                    </p>
+
+                    <p>
+                        <b>Application Port:</b>
+                        8083
+                    </p>
+
+                    <p>
+                        <b>Trivy File System Report:</b>
+                        trivy-fs-report.html
+                    </p>
+
+                    <p>
+                        <b>Trivy Docker Image Report:</b>
+                        trivy-image-report.html
+                    </p>
+
+                    <p>
+                        <a href="${BUILD_URL}">
+                            View Jenkins Console Output
+                        </a>
+                    </p>
+
                 </div>
-                <p>Check the <a href="${BUILD_URL}">console output</a>.</p>
-                </div>
+
                 </body>
                 </html>
                 """
 
-                emailext (
-                    subject: "${jobName} - Build ${buildNumber} - ${pipelineStatus.toUpperCase()}",
+                emailext(
+                    subject:
+                        "${jobName} - Build ${buildNumber} - ${pipelineStatus.toUpperCase()}",
+
                     body: body,
-                    to: 'kastrokiran@gmail.com',
-                    from: 'jenkins@example.com',
-                    replyTo: 'jenkins@example.com',
+
+                    to: 'rahmanuddinmd@gmail.com',
+
                     mimeType: 'text/html',
-                    attachmentsPattern: 'trivy-image-report.html'
+
+                    attachmentsPattern:
+                        'trivy-fs-report.html,trivy-image-report.html'
                 )
             }
         }
     }
-}
-
----------------------------------------
+}---------------------------------------
 Deploying to EKS Cluster
 ---------------------------------------
 
